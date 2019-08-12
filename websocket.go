@@ -130,7 +130,7 @@ func (ws *WsConn) NewWs() *WsConn {
 	return ws
 }
 
-func (ws *WsConn) connect() {
+func (ws *WsConn) connect() error {
 	dialer := websocket.DefaultDialer
 
 	if ws.ProxyUrl != "" {
@@ -145,7 +145,7 @@ func (ws *WsConn) connect() {
 
 	wsConn, resp, err := dialer.Dial(ws.WsUrl, http.Header(ws.ReqHeaders))
 	if err != nil {
-		panic(err)
+		return nil
 	}
 
 	ws.Conn = wsConn
@@ -156,6 +156,7 @@ func (ws *WsConn) connect() {
 	}
 
 	ws.UpdateActiveTime()
+	return nil
 }
 
 func (ws *WsConn) SendJsonMessage(v interface{}) error {
@@ -174,20 +175,24 @@ func (ws *WsConn) SendTextMessage(data []byte) error {
 	return ws.WriteMessage(websocket.TextMessage, data)
 }
 
-func (ws *WsConn) ReConnect() {
+func (ws *WsConn) ReConnect() error {
 	ws.Lock()
 	defer ws.Unlock()
 
 	log.Println("close ws  error :", ws.Close())
 	time.Sleep(time.Second)
 
-	ws.connect()
+	err := ws.connect()
+	if err != nil {
+		return err
+	}
 
 	//re subscribe
 	for _, sub := range ws.subs {
 		log.Println("subscribe:", sub)
 		ws.SendJsonMessage(sub)
 	}
+	return nil
 }
 
 func (ws *WsConn) ReConnectTimer() {
@@ -204,7 +209,11 @@ func (ws *WsConn) ReConnectTimer() {
 			select {
 			case <-timer.C:
 				log.Println("reconnect websocket")
-				ws.ReConnect()
+				err := ws.ReConnect()
+				if err != nil {
+					timer.Reset(time.Second)
+					break
+				}
 				timer.Reset(ws.ReconnectIntervalTime)
 			case <-ws.closeReconnect:
 				timer.Stop()
